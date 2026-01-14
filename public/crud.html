@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Café System - CRUD</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background:#111; color:#eee; }
+    .container { max-width: 980px; margin: 0 auto; }
+    h1 { margin-bottom: 6px; }
+    .muted { color:#bbb; margin-top:0; }
+    .row { display:flex; gap:16px; flex-wrap: wrap; }
+    .card { background:#1b1b1b; border:1px solid #333; border-radius:10px; padding:14px; flex:1; min-width: 300px; }
+    label { display:block; margin-top:10px; font-size: 14px; color:#ddd; }
+    input, select, textarea {
+      width:100%; padding:10px; margin-top:6px; border-radius:8px; border:1px solid #444;
+      background:#0f0f0f; color:#fff;
+    }
+    textarea { min-height: 70px; resize: vertical; }
+    button {
+      padding:10px 12px; border-radius:8px; border:1px solid #444;
+      background:#2a2a2a; color:#fff; cursor:pointer;
+    }
+    button:hover { background:#333; }
+    button.primary { background:#0d5; border-color:#0d5; color:#000; font-weight:bold; }
+    button.danger { background:#c33; border-color:#c33; }
+    button.small { padding:6px 10px; font-size: 12px; }
+    table { width:100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom:1px solid #333; padding:10px; text-align:left; vertical-align: top; }
+    th { color:#ddd; }
+    .actions { display:flex; gap:8px; }
+    .badge { padding:3px 8px; border-radius:99px; background:#333; display:inline-block; font-size:12px; }
+    .ok { color:#0f0; }
+    .err { color:#f55; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .topbar input { max-width: 320px; }
+    .footer-note { color:#aaa; font-size: 12px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <div>
+        <h1>☕ Café System (CRUD)</h1>
+        <p class="muted">Front simples (HTML + JS) consumindo sua API Laravel.</p>
+      </div>
+      <div>
+        <label style="margin:0">Buscar por nome</label>
+        <input id="search" placeholder="ex: Expresso" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h2 style="margin-top:0">📦 Categorias</h2>
+
+        <label>Nome da categoria</label>
+        <input id="catName" placeholder="Ex: Cafés Especiais" />
+        <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="primary" id="btnCreateCategory">Criar categoria</button>
+          <button id="btnReloadCategories">Recarregar</button>
+        </div>
+
+        <div style="margin-top:12px">
+          <span class="badge">Total: <span id="catCount">0</span></span>
+          <span id="catMsg" style="margin-left:8px"></span>
+        </div>
+
+        <ul id="catList" style="margin-top:12px; padding-left: 18px;"></ul>
+      </div>
+
+      <div class="card">
+        <h2 style="margin-top:0">☕ Produtos</h2>
+
+        <input type="hidden" id="productId" />
+
+        <label>Nome</label>
+        <input id="prodName" placeholder="Ex: Café Expresso" />
+
+        <label>Descrição</label>
+        <textarea id="prodDescription" placeholder="Ex: Café forte e encorpado"></textarea>
+
+        <label>Preço</label>
+        <input id="prodPrice" type="number" step="0.01" placeholder="Ex: 6.50" />
+
+        <label>Categoria</label>
+        <select id="prodCategory"></select>
+
+        <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="primary" id="btnSaveProduct">Salvar (Criar/Atualizar)</button>
+          <button id="btnClearForm">Limpar</button>
+          <button id="btnReloadProducts">Recarregar</button>
+        </div>
+
+        <div style="margin-top:12px">
+          <span class="badge">Total: <span id="prodCount">0</span></span>
+          <span id="prodMsg" style="margin-left:8px"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h2 style="margin-top:0">📋 Lista de Produtos</h2>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:70px">ID</th>
+            <th>Produto</th>
+            <th style="width:110px">Preço</th>
+            <th style="width:160px">Categoria</th>
+            <th style="width:170px">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="prodTable"></tbody>
+      </table>
+
+      <div class="footer-note">
+        Dica: se aparecer erro de CORS, você provavelmente abriu o HTML direto (file://). Use o link pelo Laravel (abaixo).
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 🔧 SUA API BASE (como você está usando no curso)
+    const API = "http://127.0.0.1:8000/api";
+
+    const el = (id) => document.getElementById(id);
+
+    function msg(targetId, text, ok=true) {
+      const t = el(targetId);
+      t.textContent = text;
+      t.className = ok ? "ok" : "err";
+      setTimeout(() => { t.textContent = ""; t.className=""; }, 2500);
+    }
+
+    async function apiFetch(path, options={}) {
+      const res = await fetch(API + path, {
+        headers: { "Content-Type": "application/json", ...(options.headers||{}) },
+        ...options
+      });
+
+      // tenta ler JSON mesmo em erro
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+
+      if (!res.ok) {
+        const errorText = data ? JSON.stringify(data) : (await res.text().catch(()=> "Erro"));
+        throw new Error(errorText);
+      }
+      return data;
+    }
+
+    // ------- CATEGORIAS -------
+    let categories = [];
+    async function loadCategories() {
+      categories = await apiFetch("/categories");
+      el("catCount").textContent = categories.length;
+
+      // lista
+      el("catList").innerHTML = categories.map(c => `<li>${c.id} - ${c.name}</li>`).join("");
+
+      // select
+      const sel = el("prodCategory");
+      sel.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+    }
+
+    async function createCategory() {
+      const name = el("catName").value.trim();
+      if (!name) return msg("catMsg", "Digite um nome.", false);
+
+      try {
+        await apiFetch("/categories", {
+          method: "POST",
+          body: JSON.stringify({ name })
+        });
+        el("catName").value = "";
+        msg("catMsg", "Categoria criada ✅", true);
+        await loadCategories();
+      } catch (e) {
+        msg("catMsg", "Erro: " + e.message, false);
+      }
+    }
+
+    // ------- PRODUTOS -------
+    let products = [];
+
+    async function loadProducts() {
+      products = await apiFetch("/products");
+      el("prodCount").textContent = products.length;
+      renderProducts();
+    }
+
+    function renderProducts() {
+      const q = el("search").value.trim().toLowerCase();
+
+      const filtered = products.filter(p =>
+        !q || (p.name || "").toLowerCase().includes(q)
+      );
+
+      const tbody = el("prodTable");
+      tbody.innerHTML = filtered.map(p => {
+        const categoryName = (p.category && p.category.name) ? p.category.name : ("#" + p.category_id);
+        return `
+          <tr>
+            <td>${p.id}</td>
+            <td>
+              <strong>${p.name}</strong><br/>
+              <span style="color:#bbb">${p.description || ""}</span>
+            </td>
+            <td>R$ ${Number(p.price).toFixed(2)}</td>
+            <td>${categoryName}</td>
+            <td>
+              <div class="actions">
+                <button class="small" onclick="editProduct(${p.id})">Editar</button>
+                <button class="small danger" onclick="deleteProduct(${p.id})">Excluir</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function clearForm() {
+      el("productId").value = "";
+      el("prodName").value = "";
+      el("prodDescription").value = "";
+      el("prodPrice").value = "";
+      if (categories[0]) el("prodCategory").value = categories[0].id;
+      msg("prodMsg", "Form limpo.", true);
+    }
+
+    // deixa global para o onclick
+    window.editProduct = function(id) {
+      const p = products.find(x => x.id === id);
+      if (!p) return;
+
+      el("productId").value = p.id;
+      el("prodName").value = p.name || "";
+      el("prodDescription").value = p.description || "";
+      el("prodPrice").value = p.price ?? "";
+      el("prodCategory").value = p.category_id;
+
+      msg("prodMsg", `Editando ID ${id}...`, true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function saveProduct() {
+      const id = el("productId").value.trim();
+      const name = el("prodName").value.trim();
+      const description = el("prodDescription").value.trim();
+      const price = el("prodPrice").value.trim();
+      const category_id = Number(el("prodCategory").value);
+
+      if (!name) return msg("prodMsg", "Nome obrigatório.", false);
+      if (!price) return msg("prodMsg", "Preço obrigatório.", false);
+
+      const payload = {
+        name,
+        description,
+        price: Number(price),
+        category_id
+      };
+
+      try {
+        if (!id) {
+          // CREATE
+          await apiFetch("/products", {
+            method: "POST",
+            body: JSON.stringify(payload)
+          });
+          msg("prodMsg", "Produto criado ✅", true);
+        } else {
+          // UPDATE
+          await apiFetch(`/products/${id}`, {
+            method: "PUT",
+            body: JSON.stringify(payload)
+          });
+          msg("prodMsg", "Produto atualizado ✅", true);
+        }
+
+        clearForm();
+        await loadProducts();
+      } catch (e) {
+        msg("prodMsg", "Erro: " + e.message, false);
+      }
+    }
+
+    // deixa global para o onclick
+    window.deleteProduct = async function(id) {
+      const ok = confirm(`Tem certeza que deseja excluir o produto ${id}?`);
+      if (!ok) return;
+
+      try {
+        await apiFetch(`/products/${id}`, { method: "DELETE" });
+        msg("prodMsg", "Produto excluído ✅", true);
+        await loadProducts();
+      } catch (e) {
+        msg("prodMsg", "Erro: " + e.message, false);
+      }
+    }
+
+    // ------- INIT -------
+    async function init() {
+      try {
+        await loadCategories();
+        await loadProducts();
+        clearForm();
+      } catch (e) {
+        alert("Erro ao carregar: " + e.message + "\n\nConfira se o php artisan serve está rodando.");
+      }
+    }
+
+    el("btnCreateCategory").addEventListener("click", createCategory);
+    el("btnReloadCategories").addEventListener("click", loadCategories);
+
+    el("btnSaveProduct").addEventListener("click", saveProduct);
+    el("btnClearForm").addEventListener("click", clearForm);
+    el("btnReloadProducts").addEventListener("click", loadProducts);
+
+    el("search").addEventListener("input", renderProducts);
+
+    init();
+  </script>
+</body>
+</html>
